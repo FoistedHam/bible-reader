@@ -648,7 +648,7 @@
   <section class="settings" aria-label="Display and voice settings">
     <div class="field">
       <label for="voiceSelect">Voice</label>
-      <select id="voiceSelect"><option value="">System default voice</option></select>
+      <select id="voiceSelect"><option>Loading…</option></select>
     </div>
     <div class="field">
       <label for="aiVoiceBtn">AI Voice</label>
@@ -1114,70 +1114,38 @@ function escapeHtml(s) {
 }
 
 /* ──────────────────────────────────────────────────────
-   Voices (browser) — robust loading
+   Voices (browser)
 ─────────────────────────────────────────────────────── */
 const synth = (typeof window !== "undefined" && window.speechSynthesis) ? window.speechSynthesis : null;
 const SPEECH_OK = !!synth;
 let voices = [];
-let voicesLoaded = false;
 
-function refreshVoiceList() {
+function loadVoices() {
   if (!synth) return;
   try { voices = synth.getVoices() || []; } catch { voices = []; }
-  if (voices.length > 0) {
-    voicesLoaded = true;
-    populateVoices();
-  }
-}
-
-if (synth) {
-  // Try immediately (works in Firefox & Safari)
-  refreshVoiceList();
-  // Listen for async loading (Chrome)
-  if ("onvoiceschanged" in synth) {
-    synth.addEventListener("voiceschanged", refreshVoiceList);
-  }
-  // Aggressive poll for ~3 seconds, then give up gracefully
-  let tries = 0;
-  const poll = setInterval(() => {
-    tries++;
-    refreshVoiceList();
-    if (voicesLoaded || tries > 15) {
-      clearInterval(poll);
-      if (!voicesLoaded) {
-        // Still nothing — show a usable empty state, don't block UI
-        populateVoices();
-      }
-    }
-  }, 200);
-} else {
-  // No speech API at all — populate placeholder once
   populateVoices();
 }
+loadVoices();
+if (synth && "onvoiceschanged" in synth) synth.onvoiceschanged = loadVoices;
 
 function populateVoices() {
   voiceSelect.innerHTML = "";
   if (!SPEECH_OK) {
-    voiceSelect.innerHTML = `<option>Audio unavailable in this view</option>`;
+    voiceSelect.innerHTML = `<option>Audio unavailable in preview</option>`;
     voiceSelect.disabled = true;
-    return;
-  }
-  if (!voices.length) {
-    voiceSelect.innerHTML = `<option value="">System default voice</option>`;
-    voiceSelect.disabled = false;
-    state.voiceURI = null;
     return;
   }
   voiceSelect.disabled = false;
   const target = state.lang === "ko" ? "ko" : "en";
-  const matching = voices.filter(v => (v.lang || "").toLowerCase().startsWith(target));
-  const others   = voices.filter(v => !(v.lang || "").toLowerCase().startsWith(target));
+  const matching = voices.filter(v => v.lang.toLowerCase().startsWith(target));
+  const others = voices.filter(v => !v.lang.toLowerCase().startsWith(target));
 
-  // Always include a "system default" option first
-  const def = document.createElement("option");
-  def.value = "";
-  def.textContent = "System default voice";
-  voiceSelect.appendChild(def);
+  const addOpt = (v) => {
+    const o = document.createElement("option");
+    o.value = v.voiceURI;
+    o.textContent = `${v.name} (${v.lang})`;
+    voiceSelect.appendChild(o);
+  };
 
   if (matching.length) {
     const og = document.createElement("optgroup");
@@ -1201,14 +1169,13 @@ function populateVoices() {
     });
     voiceSelect.appendChild(og);
   }
-  // Pre-select first matching for current language
-  if (matching.length) {
-    voiceSelect.value = matching[0].voiceURI;
-    state.voiceURI = matching[0].voiceURI;
-  } else {
-    voiceSelect.value = "";
-    state.voiceURI = null;
+  if (!voices.length) {
+    voiceSelect.innerHTML = `<option>No voices found in this browser</option>`;
+    return;
   }
+  // Pre-select first matching
+  if (matching.length) voiceSelect.value = matching[0].voiceURI;
+  state.voiceURI = voiceSelect.value;
 }
 voiceSelect.addEventListener("change", () => { state.voiceURI = voiceSelect.value; });
 
@@ -1219,7 +1186,7 @@ function pickVoice() {
     if (v) return v;
   }
   const target = state.lang === "ko" ? "ko" : "en";
-  return voices.find(v => (v.lang || "").toLowerCase().startsWith(target)) || null;
+  return voices.find(v => v.lang.toLowerCase().startsWith(target)) || null;
 }
 
 /* ──────────────────────────────────────────────────────
